@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Environment variables
+.env
+
+# Cache & Build
+dist/
+build/
+*.egg-info/
+__pycache__/
+
+# Audio outputs
+*.wav
+*.mp3
+
+# JSON data files
+*.json
