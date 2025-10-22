@@ -1,39 +1,71 @@
-"""
-state.py — Holds static state and system-level prompts for NexusAgent.
+"""State management for Nexus Agent."""
 
-This includes:
-- System prompt that defines Nexus's role/persona
-- Fixed introduction and outro messages
-- Any other constants that are part of Nexus state
-"""
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass, field
+from typing_extensions import TypedDict
 
-# ------------------------- SYSTEM PROMPT -------------------------
 
-SYSTEM_NEXUS = (
-    "You are Agent Nexus, the warm, concise host of the Optum MultiAgent Conversation Podcast. "
-    "Your job is to welcome listeners, introduce the purpose of the conversation, "
-    "hand off smoothly between agents, and close the session clearly. "
-    "You must keep your responses professional, engaging, and limited to one sentence (15–25 words). "
-    "At the end of the podcast, provide a comprehensive summary that highlights key points from both agents "
-    "and thank the audience for listening."
-)
+@dataclass
+class NexusAgentState:
+    """Nexus agent specific state."""
+    session_id: str
+    topic: str = ""
+    is_active: bool = False
+    intro_completed: bool = False
+    outro_completed: bool = False
+    context_summary: str = ""
+    generated_lines: List[str] = field(default_factory=list)
+    
+    def update_topic(self, topic: str):
+        """Update the podcast topic."""
+        self.topic = topic
+    
+    def mark_intro_complete(self):
+        """Mark the introduction as completed."""
+        self.intro_completed = True
+    
+    def mark_outro_complete(self):
+        """Mark the outro as completed."""
+        self.outro_completed = True
+        self.is_active = False
+    
+    def add_generated_line(self, line: str):
+        """Add a generated line to the history."""
+        self.generated_lines.append(line)
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current status summary."""
+        return {
+            "session_id": self.session_id,
+            "topic": self.topic,
+            "is_active": self.is_active,
+            "intro_completed": self.intro_completed,
+            "outro_completed": self.outro_completed,
+            "total_lines": len(self.generated_lines)
+        }
 
-# ------------------------- FIXED INTRO / OUTRO -------------------------
 
-NEXUS_INTRO = (
-    "Hello and welcome to Optum MultiAgent Conversation, where intelligence meets collaboration. "
-    "I'm Agent Nexus, your host and guide through today's episode. "
-    "In this podcast, we bring together specialized agents to explore the world of metrics, data, "
-    "and decision-making. Let's meet today's experts."
-)
+class PodcastState(TypedDict):
+    """Enhanced state structure for podcast generation with agent-specific states."""
+    messages: List[Dict[str, Any]]
+    current_speaker: str
+    topic: str
+    context: Dict[str, Any]
+    interrupted: bool
+    audio_segments: List[str]
+    conversation_history: List[Dict[str, str]]
+    current_turn: float
+    max_turns: int
+    session_id: str
+    node_history: List[Dict[str, Any]]
+    current_node: str
+    script_lines: List[str]
+    
+    # Agent-specific states
+    nexus_state: Optional['NexusAgentState']
+    reco_state: Optional[Any]  # Will be imported from reco agent
+    stat_state: Optional[Any]  # Will be imported from stat agent
 
-NEXUS_OUTRO = (
-    "And that brings us to the end of today's episode of Optum MultiAgent Conversation. "
-    "A big thank you to Agent Reco for guiding us through the art of metric recommendations, "
-    "and to Agent Stat for grounding us in the power of metric data. "
-    "Your insights today have not only informed but inspired. Together, you've shown how collaboration "
-    "between agents can unlock deeper understanding and smarter decisions. "
-    "To our listeners—thank you for tuning in. Stay curious, stay data-driven, "
-    "and we'll see you next time on Optum MultiAgent Conversation. "
-    "Until then, this is Agent Nexus, signing off."
-)
+
+# Legacy alias for backward compatibility
+NexusState = NexusAgentState
