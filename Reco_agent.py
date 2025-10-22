@@ -1,132 +1,143 @@
-import asyncio
-import time
-from pathlib import Path
-from typing import List, Dict, Any
+"""Reco Agent - Metrics recommendation specialist."""
 
-from uap_podcast.models.audio import text_to_ssml, synth, write_master
-from uap_podcast.models.podcast import llm
-from uap_podcast.agents.reco_agent.utils.state import RECO_INTRO, SYSTEM_RECO
-from uap_podcast.agents.reco_agent.utils.nodes import generate_reco_turn
-from uap_podcast.agents.reco_agent.utils.tools import (
-    ensure_complete_response,
-    vary_opening,
-    add_conversation_dynamics,
-    add_emotional_reactions,
-    clean_repetition,
-)
+import asyncio
+from typing import Dict, Any, Optional, List
+
+from uap_podcast.utils.config import Config
+from uap_podcast.utils.logging import default_logger
+from uap_podcast.models.podcast import PodcastEngine
+from .utils.state import RecoState
+from .utils.nodes import RecoNodes
+from ..nexus_agent.utils.state import PodcastState
+
 
 class RecoAgent:
     """
-    🎯 RecoAgent manages the recommendation agent's part of the podcast.
-    Responsibilities:
-      - Speak Reco's intro
-      - Generate dynamic responses based on context and conversation state
-      - Maintain script & audio segments for Reco
+    Reco Agent - Metrics recommendation specialist.
+    
+    Responsible for providing actionable recommendations on metrics,
+    monitoring methods, and operational improvements.
     """
-
-    def __init__(self):
-        self.script_lines: List[str] = []
-        self.audio_segments: List[str] = []
-        self.conversation_history: List[str] = []
-        self.last_openings: Dict[str, str] = {}
-        self.last_speaker: str = ""
-
-    async def speak_intro(self) -> None:
-        """🎙️ Speak the fixed Reco introduction."""
-        self.script_lines.append(f"Agent Reco: {RECO_INTRO}")
-        ssml = text_to_ssml(RECO_INTRO, "RECO")
-        audio = synth(ssml)
-        self.audio_segments.append(audio)
-
-    async def generate_turn(
-        self,
-        context: str,
-        nexus_intro: str,
-        previous_history: List[str],
-        turn_index: int,
-    ) -> str:
-        """
-        🤖 Generate a single Reco turn based on:
-          - context
-          - Nexus topic intro
-          - previous conversation state
-        """
-        print(f"💡 Generating Reco turn {turn_index + 1}...")
-        reco_prompt = f"""
-        Context: {context}
-
-        Nexus introduced these topics: {nexus_intro}
-
-        Previous conversation: {previous_history[-2:] if len(previous_history) > 1 else 'None'}
-
-        Provide your recommendation based on the data and topics introduced.
-        """
-
-        response = await generate_reco_turn(SYSTEM_RECO, reco_prompt)
-
-        # --- Conversation polishing ---
-        response = vary_opening(response, "RECO", self.last_openings)
-        response = add_conversation_dynamics(
-            response, "RECO", self.last_speaker, context, turn_index, previous_history
-        )
-        response = add_emotional_reactions(response, "RECO")
-        response = clean_repetition(response)
-        response = ensure_complete_response(response)
-
-        # Save script + audio
-        self.script_lines.append(f"Agent Reco: {response}")
-        ssml = text_to_ssml(response, "RECO")
-        audio = synth(ssml)
-        self.audio_segments.append(audio)
-
-        # Update history
-        self.conversation_history.append(f"Reco: {response}")
-        self.last_speaker = "Reco"
-        return response
-
-    async def generate_segment(
-        self,
-        context: str,
-        nexus_intro: str,
-        turns: int = 3,
-        output_prefix: str = "reco_segment",
-    ) -> Dict[str, Any]:
-        """
-        🎧 Generate the entire Reco segment flow:
-          1. Intro
-          2. Multiple recommendation turns
-          3. Write output audio + script
-        """
-        await self.speak_intro()
-
-        for turn in range(turns):
-            await self.generate_turn(
-                context, nexus_intro, self.conversation_history, turn
-            )
-            time.sleep(0.2)
-
-        # Write audio output
-        output_file = f"{output_prefix}.wav"
-        write_master(self.audio_segments, output_file)
-
-        # Write script
-        script_file = f"{output_prefix}_script.txt"
-        Path(script_file).write_text("\n".join(self.script_lines), encoding="utf-8")
-
-        print("✅ Reco segment generated.")
+    
+    def __init__(self, podcast_engine: PodcastEngine):
+        """Initialize Reco agent with podcast engine."""
+        self.engine = podcast_engine
+        self.nodes = RecoNodes()
+        self.state: Optional[RecoState] = None
+        
+        default_logger.info("Reco Agent initialized")
+    
+    def initialize_session(self, session_id: str) -> RecoState:
+        """Initialize a new podcast session."""
+        self.state = RecoState(session_id=session_id)
+        
+        default_logger.info(f"Reco session initialized: {session_id}")
+        return self.state
+    
+    async def generate_introduction(self, state: PodcastState) -> Dict[str, Any]:
+        """Generate Reco introduction."""
+        if not self.state:
+            raise RuntimeError("Reco agent not initialized")
+        
+        result = await self.nodes.reco_intro_node(state)
+        
+        # Update internal state
+        self.state.add_conversation_context("RECO", Config.RECO_INTRO)
+        
+        default_logger.info("Reco introduction generated")
+        return result
+    
+    async def generate_turn_response(self, state: PodcastState) -> Dict[str, Any]:
+        """Generate conversation turn response."""
+        if not self.state:
+            raise RuntimeError("Reco agent not initialized")
+        
+        # Update turn counter
+        self.state.increment_turn()
+        
+        # Generate the response
+        result = await self.nodes.reco_turn_node(state)
+        
+        # Extract and analyze the response
+        generated_text = result.get("conversation_history", [])[-1].get("text", "")
+        
+        # Update internal state with generated content
+        if generated_text:
+            self.state.add_recommendation(generated_text)
+        
+        # Update conversation context
+        self.state.add_conversation_context("RECO", generated_text)
+        
+        default_logger.info(f"Reco turn {self.state.current_turn} generated")
+        return result
+    
+    def analyze_conversation_performance(self) -> Dict[str, Any]:
+        """Analyze the agent's performance in the conversation."""
+        if not self.state:
+            return {"status": "not_initialized"}
+        
         return {
-            "audio_file": output_file,
-            "script_file": script_file,
-            "lines": self.script_lines,
-            "history": self.conversation_history,
+            "turns_completed": self.state.current_turn,
+            "total_recommendations": len(self.state.recommendations_made),
+            "metrics_discussed": len(self.state.metrics_discussed),
+            "recommendation_summary": self._format_recommendation_summary(),
+            "conversation_quality": self._assess_conversation_quality()
         }
-
-# Example standalone run
-if __name__ == "__main__":
-    async def _run_demo():
-        context = "[Demo] Sample data context loaded..."
-        nexus_intro = "[Demo] Sample topic intro..."
-        reco = RecoAgent()
-        await reco.generate_segment(context, nexus_intro, turns=3, output_prefix="reco_demo")
-
-    asyncio.run(_run_demo())
+    
+    def _format_recommendation_summary(self) -> str:
+        """Format a summary of recommendations made."""
+        if not self.state.recommendations_made:
+            return "No recommendations made"
+        
+        return f"{len(self.state.recommendations_made)} recommendations provided"
+    
+    def _assess_conversation_quality(self) -> Dict[str, Any]:
+        """Assess the quality of conversation contributions."""
+        if not self.state.recommendations_made:
+            return {"score": 0.0, "issues": ["No recommendations made"]}
+        
+        # Simple quality assessment based on available data
+        return {
+            "score": 0.8,  # Default quality score
+            "valid_recommendations": len(self.state.recommendations_made),
+            "total_recommendations": len(self.state.recommendations_made),
+            "issues": []
+        }
+    
+    def get_system_prompt(self) -> str:
+        """Get the system prompt for Reco agent."""
+        return Config.SYSTEM_RECO
+    
+    def get_agent_info(self) -> Dict[str, Any]:
+        """Get information about the Reco agent."""
+        return {
+            "name": "Agent Reco",
+            "role": "Metrics Recommendation Specialist",
+            "voice": Config.VOICE_RECO,
+            "description": "Senior consultant specializing in actionable metrics recommendations",
+            "capabilities": [
+                "Metrics strategy and selection",
+                "Monitoring method recommendations",
+                "Operational improvement suggestions",
+                "Risk mitigation strategies",
+                "Performance target setting"
+            ],
+            "focus_areas": [
+                "Smoothing and trend analysis",
+                "Control charting",
+                "Cohort analysis",
+                "Operational levers",
+                "Quality gates and validation"
+            ]
+        }
+    
+    def get_session_status(self) -> Optional[Dict[str, Any]]:
+        """Get current session status."""
+        return self.state.get_status() if self.state else None
+    
+    async def cleanup(self):
+        """Clean up agent resources."""
+        if self.state:
+            default_logger.info(f"Reco session {self.state.session_id} completed with {self.state.current_turn} turns")
+        
+        default_logger.info("Reco agent cleaned up")
