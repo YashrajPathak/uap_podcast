@@ -1,108 +1,76 @@
-"""
-logging.py — Centralized logging configuration for the podcast system.
-
-This module:
-- Configures a global logger with colorized console output
-- Supports structured JSON logs for production if needed
-- Provides helper methods for logging at different levels
-"""
+"""Logging utilities for UAP Podcast application."""
 
 import logging
 import sys
-import os
 from datetime import datetime
+from pathlib import Path
+from typing import Optional
 
-# --------------------------------------------------------------------------
-# 🎨 Log formatting (colorful for local dev, clean for production)
-# --------------------------------------------------------------------------
-
-class ColorFormatter(logging.Formatter):
-    """Custom formatter with ANSI colors for different log levels."""
-
-    COLORS = {
-        logging.DEBUG: "\033[36m",     # Cyan
-        logging.INFO: "\033[32m",      # Green
-        logging.WARNING: "\033[33m",   # Yellow
-        logging.ERROR: "\033[31m",     # Red
-        logging.CRITICAL: "\033[41m",  # Red background
-    }
-    RESET = "\033[0m"
-
-    def format(self, record):
-        color = self.COLORS.get(record.levelno, self.RESET)
-        level_name = f"{color}{record.levelname}{self.RESET}"
-        timestamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")
-        return f"[{timestamp}] [{level_name}] {record.name}: {record.getMessage()}"
-
-# --------------------------------------------------------------------------
-# 🛠️ Base logger setup
-# --------------------------------------------------------------------------
-
-def _create_logger(name: str = "uap_podcast") -> logging.Logger:
+def setup_logger(
+    name: str,
+    level: int = logging.INFO,
+    log_file: Optional[str] = None,
+    format_string: Optional[str] = None
+) -> logging.Logger:
+    """
+    Set up a logger with console and optional file output.
+    
+    Args:
+        name: Logger name
+        level: Logging level (default: INFO)
+        log_file: Optional file path for logging
+        format_string: Optional custom format string
+        
+    Returns:
+        Configured logger instance
+    """
+    if format_string is None:
+        format_string = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    
     logger = logging.getLogger(name)
-
-    # Avoid duplicate handlers if re-imported
-    if logger.handlers:
-        return logger
-
-    logger.setLevel(logging.DEBUG if os.getenv("DEBUG", "0") == "1" else logging.INFO)
-
-    # Stream handler (console output)
+    logger.setLevel(level)
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
-    console_handler.setFormatter(ColorFormatter())
-
+    console_handler.setLevel(level)
+    console_formatter = logging.Formatter(format_string)
+    console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
-    logger.propagate = False
+    
+    # File handler (if specified)
+    if log_file:
+        file_path = Path(log_file)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        file_handler = logging.FileHandler(file_path)
+        file_handler.setLevel(level)
+        file_formatter = logging.Formatter(format_string)
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    
     return logger
 
-# Global logger instance
-logger = _create_logger()
+def get_session_logger(session_id: str) -> logging.Logger:
+    """
+    Get a logger for a specific podcast session.
+    
+    Args:
+        session_id: Unique session identifier
+        
+    Returns:
+        Session-specific logger
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"logs/podcast_session_{session_id}_{timestamp}.log"
+    
+    return setup_logger(
+        name=f"podcast_session_{session_id}",
+        log_file=log_file
+    )
 
-# --------------------------------------------------------------------------
-# ✅ Helper shortcut functions (recommended for imports)
-# --------------------------------------------------------------------------
-
-def debug(msg: str, *args, **kwargs):
-    logger.debug(msg, *args, **kwargs)
-
-def info(msg: str, *args, **kwargs):
-    logger.info(msg, *args, **kwargs)
-
-def warning(msg: str, *args, **kwargs):
-    logger.warning(msg, *args, **kwargs)
-
-def error(msg: str, *args, **kwargs):
-    logger.error(msg, *args, **kwargs)
-
-def critical(msg: str, *args, **kwargs):
-    logger.critical(msg, *args, **kwargs)
-
-# --------------------------------------------------------------------------
-# 📦 Optional: Switch to JSON logging for production (e.g., Kubernetes/ELK)
-# --------------------------------------------------------------------------
-
-class JSONFormatter(logging.Formatter):
-    def format(self, record):
-        return (
-            f'{{"timestamp": "{datetime.fromtimestamp(record.created).isoformat()}", '
-            f'"level": "{record.levelname}", '
-            f'"logger": "{record.name}", '
-            f'"message": "{record.getMessage()}"}}'
-        )
-
-def enable_json_logging():
-    """Switch to JSON logging — useful in containerized production environments."""
-    for handler in logger.handlers:
-        handler.setFormatter(JSONFormatter())
-
-# --------------------------------------------------------------------------
-# ✅ Quick self-test
-# --------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    debug("Debug message: Podcast system starting up...")
-    info("Info message: Configuration loaded.")
-    warning("Warning message: Latency above threshold.")
-    error("Error message: Audio synthesis failed.")
-    critical("Critical message: Unable to contact LLM service.")
+# Default logger for the application
+default_logger = setup_logger("uap_podcast")
