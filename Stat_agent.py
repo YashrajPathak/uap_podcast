@@ -1,153 +1,106 @@
-import asyncio
-import time
-from pathlib import Path
-from typing import List, Dict, Any
+"""Stat Agent - Data integrity and statistical validation specialist."""
 
-from uap_podcast.models.audio import text_to_ssml, synth, write_master
-from uap_podcast.models.podcast import llm
-from uap_podcast.agents.stat_agent.utils.state import STAT_INTRO, SYSTEM_STAT
-from uap_podcast.agents.stat_agent.utils.nodes import generate_stat_turn
-from uap_podcast.agents.stat_agent.utils.tools import (
-    ensure_complete_response,
-    vary_opening,
-    add_conversation_dynamics,
-    add_emotional_reactions,
-    clean_repetition,
-)
+import asyncio
+from typing import Dict, Any, Optional, List
+
+from ...utils.config import Config
+from ...utils.logging import default_logger
+from ...models.podcast import PodcastEngine
+from .utils.state import StatState
+from .utils.nodes import StatNodes
+from ..nexus_agent.utils.state import PodcastState
+
 
 class StatAgent:
     """
-    📊 StatAgent manages the statistical integrity agent's part of the podcast.
-    Responsibilities:
-      - Speak Stat's intro
-      - Generate dynamic responses based on Reco's statements & context
-      - Maintain script & audio segments for Stat
+    Stat Agent - Data integrity and statistical validation specialist.
+    
+    Responsible for validating assumptions, challenging leaps in logic,
+    and grounding decisions in measurement quality and statistical integrity.
     """
-
-    def __init__(self):
-        self.script_lines: List[str] = []
-        self.audio_segments: List[str] = []
-        self.conversation_history: List[str] = []
-        self.last_openings: Dict[str, str] = {}
-        self.last_speaker: str = ""
-
-    async def speak_intro(self) -> None:
-        """🎙️ Speak the fixed Stat introduction."""
-        self.script_lines.append(f"Agent Stat: {STAT_INTRO}")
-        ssml = text_to_ssml(STAT_INTRO, "STAT")
-        audio = synth(ssml)
-        self.audio_segments.append(audio)
-
-    async def generate_turn(
-        self,
-        context: str,
-        nexus_intro: str,
-        reco_response: str,
-        previous_history: List[str],
-        turn_index: int,
-    ) -> str:
-        """
-        🧠 Generate a single Stat turn based on:
-          - data context
-          - Nexus topic intro
-          - Reco's previous statement
-          - conversation history
-        """
-        print(f"📊 Generating Stat turn {turn_index + 1}...")
-
-        stat_prompt = f"""
-        Context: {context}
-
-        Nexus introduced these topics: {nexus_intro}
-
-        Reco just said: {reco_response}
-
-        Previous conversation: {previous_history[-3:] if len(previous_history) >= 3 else 'None'}
-
-        Respond to Reco's point focusing on data integrity and statistical validation.
-        """
-
-        response = await generate_stat_turn(SYSTEM_STAT, stat_prompt)
-
-        # --- Conversation polishing ---
-        response = vary_opening(response, "STAT", self.last_openings)
-        response = add_conversation_dynamics(
-            response, "STAT", self.last_speaker, context, turn_index, previous_history
-        )
-        response = add_emotional_reactions(response, "STAT")
-        response = clean_repetition(response)
-        response = ensure_complete_response(response)
-
-        # Save script + audio
-        self.script_lines.append(f"Agent Stat: {response}")
-        ssml = text_to_ssml(response, "STAT")
-        audio = synth(ssml)
-        self.audio_segments.append(audio)
-
-        # Update history
-        self.conversation_history.append(f"Stat: {response}")
-        self.last_speaker = "Stat"
-        return response
-
-    async def generate_segment(
-        self,
-        context: str,
-        nexus_intro: str,
-        reco_responses: List[str],
-        turns: int = 3,
-        output_prefix: str = "stat_segment",
-    ) -> Dict[str, Any]:
-        """
-        🎧 Generate the entire Stat segment flow:
-          1. Intro
-          2. Multiple response turns
-          3. Write output audio + script
-        """
-        await self.speak_intro()
-
-        for turn in range(turns):
-            reco_response = (
-                reco_responses[turn] if turn < len(reco_responses) else "[No Reco response provided]"
-            )
-            await self.generate_turn(
-                context, nexus_intro, reco_response, self.conversation_history, turn
-            )
-            time.sleep(0.3)
-
-        # Write audio output
-        output_file = f"{output_prefix}.wav"
-        write_master(self.audio_segments, output_file)
-
-        # Write script
-        script_file = f"{output_prefix}_script.txt"
-        Path(script_file).write_text("\n".join(self.script_lines), encoding="utf-8")
-
-        print("✅ Stat segment generated.")
+    
+    def __init__(self, podcast_engine: PodcastEngine):
+        """Initialize Stat agent with podcast engine."""
+        self.engine = podcast_engine
+        self.nodes = StatNodes()
+        self.state: Optional[StatState] = None
+        
+        default_logger.info("Stat Agent initialized")
+    
+    def initialize_session(self, session_id: str) -> StatState:
+        """Initialize a new podcast session."""
+        self.state = StatState(session_id=session_id)
+        
+        default_logger.info(f"Stat session initialized: {session_id}")
+        return self.state
+    
+    async def generate_introduction(self, state: PodcastState) -> Dict[str, Any]:
+        """Generate Stat introduction."""
+        if not self.state:
+            raise RuntimeError("Stat agent not initialized")
+        
+        # Use the nodes implementation for consistency
+        result = await self.nodes.stat_intro_node(state)
+        
+        # Update internal state (nodes already handles stat_state)
+        self.state.add_conversation_context("STAT", Config.STAT_INTRO)
+        
+        default_logger.info("Stat introduction generated")
+        return result
+    
+    async def generate_turn_response(self, state: PodcastState) -> Dict[str, Any]:
+        """Generate conversation turn response."""
+        if not self.state:
+            raise RuntimeError("Stat agent not initialized")
+        
+        # Update turn counter
+        self.state.increment_turn()
+        
+        # Use the nodes implementation for consistency
+        result = await self.nodes.stat_turn_node(state)
+        
+        # Extract the generated response for internal tracking
+        generated_text = result.get("conversation_history", [])[-1].get("text", "")
+        if generated_text:
+            self.state.add_conversation_context("STAT", generated_text)
+        
+        default_logger.info(f"Stat turn {self.state.current_turn} generated")
+        return result
+    
+    def get_system_prompt(self) -> str:
+        """Get the system prompt for Stat agent."""
+        return Config.SYSTEM_STAT
+    
+    def get_agent_info(self) -> Dict[str, Any]:
+        """Get information about the Stat agent."""
         return {
-            "audio_file": output_file,
-            "script_file": script_file,
-            "lines": self.script_lines,
-            "history": self.conversation_history,
+            "name": "Agent Stat", 
+            "role": "Data Integrity & Statistical Validation Specialist",
+            "voice": Config.VOICE_STAT,
+            "description": "Senior statistical expert focused on data quality and measurement integrity",
+            "capabilities": [
+                "Statistical validation and testing",
+                "Data quality assessment", 
+                "Trend analysis and decomposition",
+                "Risk assessment and mitigation",
+                "Measurement methodology review"
+            ],
+            "focus_areas": [
+                "Stationarity and seasonality checks",
+                "Control charts and process monitoring", 
+                "Cohort analysis and segmentation",
+                "Anomaly detection and outlier handling",
+                "Data validation and integrity audits"
+            ]
         }
-
-# Example standalone run
-if __name__ == "__main__":
-    async def _run_demo():
-        context = "[Demo] Sample data context loaded..."
-        nexus_intro = "[Demo] Sample topic intro..."
-        reco_responses = [
-            "[Demo] Reco suggests using a rolling average to smooth volatility.",
-            "[Demo] Reco recommends investigating queue routing issues.",
-            "[Demo] Reco advises introducing a triage tag for complexity analysis.",
-        ]
-
-        stat = StatAgent()
-        await stat.generate_segment(
-            context,
-            nexus_intro,
-            reco_responses,
-            turns=3,
-            output_prefix="stat_demo"
-        )
-
-    asyncio.run(_run_demo())
+    
+    def get_session_status(self) -> Optional[Dict[str, Any]]:
+        """Get current session status."""
+        return self.state.get_status() if self.state else None
+    
+    async def cleanup(self):
+        """Clean up agent resources."""
+        if self.state:
+            default_logger.info(f"Stat session {self.state.session_id} completed with {self.state.current_turn} turns")
+        
+        default_logger.info("Stat agent cleaned up")
