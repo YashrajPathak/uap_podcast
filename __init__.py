@@ -1,38 +1,26 @@
-"""
-uap_podcast — Unified Audio Podcast Generation Package
+"""UAP Podcast - Multi-agent podcast generation system."""
 
-This package orchestrates a multi-agent conversational podcast system with:
-- 🎙️ Multiple intelligent agents (Nexus, Reco, Stat)
-- 🧠 LLM-based conversation generation
-- 🔊 Dynamic TTS audio synthesis
-- 🧩 Modular structure for scalability (agents, models, utils, tests)
-"""
-
-import os
-from dotenv import load_dotenv
-
-# ✅ 1. Load environment variables early
-load_dotenv()
-
-# ✅ 2. Initialize global logging as soon as the package is imported
-from uap_podcast.utils.logging import logger, info
-
-info("📦 Initializing UAP Podcast package...")
-
-# ✅ 3. Expose common package metadata
 __version__ = "1.0.0"
-__author__ = "UAP Engineering Team"
-__all__ = [
-    "agents",
-    "models",
-    "utils",
-    "tests",
-]
+__author__ = "UAP Team"
+__description__ = "Multi-agent podcast generation system using AI agents"
 
-# ✅ 4. Optional sanity check: Required environment variables
-_required_envs = ["AZURE_OPENAI_KEY", "AZURE_OPENAI_ENDPOINT", "TENANT_ID", "CLIENT_ID", "CLIENT_SECRET"]
-_missing = [v for v in _required_envs if not os.getenv(v)]
-if _missing:
-    logger.warning(f"⚠️ Missing required environment variables: {', '.join(_missing)}")
+# Main exports - import lazily to avoid circular dependencies
+# from .models.podcast import PodcastEngine, PodcastContext
+# from .models.audio import AudioProcessor
+# from .agents.nexus_agent.agent import NexusAgent
+# from .agents.reco_agent.agent import RecoAgent  
+# from .agents.stat_agent.agent import StatAgent
+# from .utils.config import Config
+# from .utils.logging import setup_logger, default_logger
 
-info("✅ UAP Podcast system initialized and ready.")
+# __all__ = [
+#     "PodcastEngine",
+#     "PodcastContext", 
+#     "AudioProcessor",
+#     "NexusAgent",
+#     "RecoAgent",
+#     "StatAgent", 
+#     "Config",
+#     "setup_logger",
+#     "default_logger"
+# ]
