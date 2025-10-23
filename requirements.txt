@@ -7,26 +7,24 @@ langchain>=0.1.0
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
 pydantic>=2.0.0
-wave
+# Replace this problematic line:
+# wave
+# MySQL-python<2.0.0,>=1.2.5
+# With these modern alternatives:
+mysqlclient>=2.1.0  # Modern MySQL connector
 websockets>=11.0
 rich>=13.0.0
 pathlib
 asyncio
-
-[dev]
+# Testing dependencies
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 black>=23.0.0
 flake8>=6.0.0
 mypy>=1.0.0
 coverage>=7.0.0
-
-[docs]
+# Documentation
 sphinx>=5.0.0
 sphinx-rtd-theme>=1.2.0
-
-[test]
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-coverage>=7.0.0
+# Additional testing
 pytest-mock>=3.10.0
